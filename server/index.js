@@ -5,6 +5,11 @@ const port = 3000
 const mongoose = require('mongoose')
 const bcrypt = require('bcrypt')
 const UserController = require('./controller/UserController')
+const JwtStrategy = require('passport-jwt').Strategy
+const ExtractJwt = require('passport-jwt').ExtractJwt
+const jwt = require('jsonwebtoken');
+const cors = require('cors')
+const passport = require('passport')
 require('dotenv').config()
 
 mongoose.connect(process.env.MONGO_CONNECTION, { useNewUrlParser: true }).catch(error => {
@@ -12,7 +17,33 @@ mongoose.connect(process.env.MONGO_CONNECTION, { useNewUrlParser: true }).catch(
 })
 app.use(express.json())
 app.use(express.urlencoded())
-app.get('/', (req, res) => {
+app.use(cors())
+
+//FUCKING PASSPORT
+app.use(passport.initialize())
+var opts = {}
+opts.jwtFromRequest = ExtractJwt.fromAuthHeaderAsBearerToken();
+opts.secretOrKey = process.env.JWT_SECRET_KEY;
+opts.algorithms = [process.env.JWT_ALGORITHM];
+passport.serializeUser(function(user, done) {
+  done(null, user);
+});
+passport.deserializeUser(function(user, done) {
+  done(null, user);
+});
+passport.use(new JwtStrategy(opts, function(jwt_payload, done) {
+  console.log('hallo')
+  console.log(jwt_payload)
+  UserController.findByEmail(jwt_payload.email, (user) => {
+    if(user){
+      return done(null, user)
+    } else {
+      return done(null, false, 'not found!')
+    }
+  })
+}));
+
+app.get('/', passport.authenticate('jwt'), (req, res) => {
   res.send('Hello World!')
 })
 
@@ -23,7 +54,14 @@ app.post('/user/register-new', (req, res) => {
   var bodyRole = req.body.role
   console.log('SALTROUNDS', process.env.SALTROUNDS)
   hashPassword(bodyPassword, (hash) => {
-    UserController.createNew(bodyEmail, hash, bodyName, bodyRole)
+    var token = jwt.sign({
+      email: bodyEmail,
+      password: hash,
+      name: bodyName,
+      role: bodyRole
+    }, process.env.JWT_SECRET_KEY, {algorithm: process.env.JWT_ALGORITHM})
+    console.log('token ',token)
+    UserController.createNew(bodyEmail, hash, bodyName, bodyRole, token)
     res.send({body: "SUCCESS"})
   })
   // UserController.createNew("TEST1","TEST1","TEST1","TEST1")
